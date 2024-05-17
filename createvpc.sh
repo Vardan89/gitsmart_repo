@@ -10,23 +10,50 @@ VPC_ID=$(aws ec2 create-vpc \
 	--output text)
 echo "This is your vpc-id $VPC_ID and cidr block is $CIDR_BlOCK"
 echo "VPC_ID=$VPC_ID" >> Used_ID.sh
+# enable DNS hostnames
+echo $(aws ec2 modify-vpc-attribute --vpc-id $VPC_ID --enable-dns-hostnames)
+
 # Create 2 subnet
 SIDR_BLOCKS=("10.0.1.0/24" "10.0.2.0/24")
 NUM=1
 for SUB_SIDR_BLOCK in "${SIDR_BLOCKS[@]}"
 do
     SUBNET=$(aws ec2 create-subnet \
-	    --vpc-id $VPC_ID \
-            --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=YourSubnetName$NUM}]" \
-	    --query 'Subnet.SubnetId' \
-	    --cidr-block $SUB_SIDR_BLOCK)
+            --vpc-id $VPC_ID \
+            --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=YourSubnetName'$NUM'}]' \
+            --query 'Subnet.SubnetId' \
+            --cidr-block $SUB_SIDR_BLOCK)
+    # Remove quotes from SUBNET variable
+    SUBNET="${SUBNET%\"}"
+    SUBNET="${SUBNET#\"}"
     echo "SUBNET$NUM=$SUBNET" >> Used_ID.sh
-    NUM=$((NUM + 1))
+    sleep 5
+    aws ec2 modify-subnet-attribute --subnet-id $SUBNET --map-public-ip-on-launch
 
+    NUM=$((NUM + 1))
 done
+
+# Create security group
+Sec_Group=$(aws ec2 create-security-group \
+          --group-name MySecurityGroup \
+          --description "My security group" \
+          --vpc-id $VPC_ID)
+sg_id=$(echo "$Sec_Group" | jq -r '.GroupId')
+echo "Sec_Group=$sg_id" >> Used_ID.sh
+# authorize security group ingress
+sleep 5
+echo $(aws ec2 authorize-security-group-ingress \
+	--group-id $sg_id \
+        --ip-permissions IpProtocol=tcp,FromPort=22,ToPort=22,Ipv6Ranges='[{CidrIpv6=::/0,Description="IPv6"}]')
+
+echo $(aws ec2 authorize-security-group-ingress \
+        --group-id $sg_id \
+        --ip-permissions IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges='[{CidrIp=0.0.0.0/0,Description="IPv4"}]')
+
+
 # Create internet gateway
 INT_GATEWAY_ID=$(aws ec2 create-internet-gateway \
-	--query 'InternetGateway.InternetGatewayId' \
+ 	--query 'InternetGateway.InternetGatewayId' \
 	--tag-specifications "ResourceType=internet-gateway, Tags=[{Key=Name, Value=GatewayName}]" \
 	--output text)
 echo "INT_GATEWAY_ID=$INT_GATEWAY_ID" >> Used_ID.sh
